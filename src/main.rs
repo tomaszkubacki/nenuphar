@@ -1,14 +1,3 @@
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::os::fd::OwnedFd;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::thread;
-use std::time::Duration;
-
-use chrono::Local;
 use gtk::CssProvider;
 use gtk::GestureClick;
 use gtk::Label;
@@ -21,6 +10,12 @@ use input::Event;
 use input::Libinput;
 use input::LibinputInterface;
 use input::event::keyboard::KeyboardEventTrait;
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::os::fd::OwnedFd;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::Path;
+use std::time::Duration;
 
 use libc::O_RDWR;
 use libc::O_WRONLY;
@@ -76,17 +71,23 @@ fn build_ui(app: &Application) {
     });
 
     label.add_controller(gesture);
-    let label_clone = label.clone();
     window.present();
     glib::spawn_future_local(async move {
+        let mut input = Libinput::new_with_udev(Interface);
+        input.udev_assign_seat("seat0").unwrap();
         loop {
-            let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-            label_clone.set_text(&now);
-            // Sleep asynchronously so we don't block the main loop
-            glib::timeout_future_seconds(1).await;
+            input.dispatch().unwrap();
+            for event in &mut input {
+                match event {
+                    Event::Keyboard(k) => {
+                        label.set_text(&format!("{}", k.key()));
+                    }
+                    _ => print!(""),
+                }
+            }
+            glib::timeout_future(Duration::from_millis(40)).await;
         }
     });
-    thread::sleep(Duration::from_secs(1));
 }
 
 struct Interface;
@@ -103,22 +104,5 @@ impl LibinputInterface for Interface {
     }
     fn close_restricted(&mut self, fd: OwnedFd) {
         drop(File::from(fd));
-    }
-}
-
-fn update_key_events(txt_ref: &Label) {
-    let mut input = Libinput::new_with_udev(Interface);
-    input.udev_assign_seat("seat0").unwrap();
-    loop {
-        input.dispatch().unwrap();
-        for event in &mut input {
-            match event {
-                Event::Keyboard(k) => {
-                    //println!("{:?} {}", k.key_state(), k.key())
-                    txt_ref.set_text(&format!("{}", k.key()));
-                }
-                _ => print!(""),
-            }
-        }
     }
 }
