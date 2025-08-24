@@ -3,7 +3,12 @@ use std::fs::OpenOptions;
 use std::os::fd::OwnedFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
 
+use chrono::Local;
 use gtk::CssProvider;
 use gtk::GestureClick;
 use gtk::Label;
@@ -16,7 +21,7 @@ use input::Event;
 use input::Libinput;
 use input::LibinputInterface;
 use input::event::keyboard::KeyboardEventTrait;
-use libc::O_RDONLY;
+
 use libc::O_RDWR;
 use libc::O_WRONLY;
 
@@ -27,14 +32,15 @@ static mut SHOW_BAR: bool = true;
 fn main() -> glib::ExitCode {
     let app = Application::builder().application_id(APP_ID).build();
     app.connect_activate(build_ui);
-    app.run()
+    let exit_code = app.run();
+    print!("the end");
+    exit_code
 }
 
 fn build_ui(app: &Application) {
     let display = gdk::Display::default().expect("No display found");
     let label = Label::builder().label("this is me").build();
     label.add_css_class("main-label");
-
     let window = ApplicationWindow::builder()
         .application(app)
         .child(&label)
@@ -60,9 +66,9 @@ fn build_ui(app: &Application) {
     );
 
     let win_ref = window.clone();
-
     let gesture = GestureClick::new();
     gesture.connect_pressed(move |_gesture, _n_press, _x, _y| {
+        //        label_clone.lock().unwrap().set_text("ooo!");
         unsafe {
             SHOW_BAR = !SHOW_BAR;
             win_ref.set_decorated(SHOW_BAR);
@@ -70,7 +76,17 @@ fn build_ui(app: &Application) {
     });
 
     label.add_controller(gesture);
+    let label_clone = label.clone();
     window.present();
+    glib::spawn_future_local(async move {
+        loop {
+            let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            label_clone.set_text(&now);
+            // Sleep asynchronously so we don't block the main loop
+            glib::timeout_future_seconds(1).await;
+        }
+    });
+    thread::sleep(Duration::from_secs(1));
 }
 
 struct Interface;
@@ -79,7 +95,7 @@ impl LibinputInterface for Interface {
     fn open_restricted(&mut self, path: &Path, flags: i32) -> Result<OwnedFd, i32> {
         OpenOptions::new()
             .custom_flags(flags)
-            .read((flags & O_RDONLY != 0) | (flags & O_RDWR != 0))
+            .read(true)
             .write((flags & O_WRONLY != 0) | (flags & O_RDWR != 0))
             .open(path)
             .map(|file: File| file.into())
@@ -90,7 +106,7 @@ impl LibinputInterface for Interface {
     }
 }
 
-fn update_key_events() {
+fn update_key_events(txt_ref: &Label) {
     let mut input = Libinput::new_with_udev(Interface);
     input.udev_assign_seat("seat0").unwrap();
     loop {
@@ -98,9 +114,10 @@ fn update_key_events() {
         for event in &mut input {
             match event {
                 Event::Keyboard(k) => {
-                    println!("{:?} {}", k.key_state(), k.key())
+                    //println!("{:?} {}", k.key_state(), k.key())
+                    txt_ref.set_text(&format!("{}", k.key()));
                 }
-                _ => println!("Got event: {:?}", event),
+                _ => print!(""),
             }
         }
     }
