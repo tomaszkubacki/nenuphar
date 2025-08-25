@@ -47,7 +47,7 @@ fn build_ui(app: &Application) {
         }
         .main-label {
             background-color: transparent;
-            font-size: 42pt;
+            font-size: 44pt;
             color: white;
         }
     ";
@@ -73,21 +73,22 @@ fn build_ui(app: &Application) {
     label.add_controller(gesture);
     window.present();
     glib::spawn_future_local(async move {
-        let mut input = Libinput::new_with_udev(Interface);
-        input.udev_assign_seat("seat0").unwrap();
-        loop {
-            input.dispatch().unwrap();
-            for event in &mut input {
-                match event {
-                    Event::Keyboard(k) => {
-                        label.set_text(&format!("{}", k.key()));
-                    }
-                    _ => print!(""),
-                }
-            }
-            glib::timeout_future(Duration::from_millis(40)).await;
-        }
+        input_dispatch(&label).await;
     });
+}
+
+async fn input_dispatch(label: &Label) {
+    let mut input = Libinput::new_with_udev(Interface);
+    input.udev_assign_seat("seat0").unwrap();
+    loop {
+        input.dispatch().unwrap();
+        for event in &mut input {
+            if let Event::Keyboard(k) = event {
+                label.set_text(&format!("{}", k.key()));
+            }
+        }
+        glib::timeout_future(Duration::from_millis(10)).await;
+    }
 }
 
 struct Interface;
