@@ -2,6 +2,8 @@
 
 Visualize pressed keys for Linux
 
+!!!THIS PROJECT IS IN DEV mode - not ready to use!!!
+
 ## Install
 
 ### from source

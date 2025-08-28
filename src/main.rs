@@ -10,6 +10,7 @@ use input::Event;
 use input::Libinput;
 use input::LibinputInterface;
 use input::event::keyboard::KeyboardEventTrait;
+use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::os::fd::OwnedFd;
@@ -77,14 +78,38 @@ fn build_ui(app: &Application) {
     });
 }
 
+#[derive(Debug)]
+pub struct Keys {
+    shift: bool,
+    alt: bool,
+    meta: bool,
+    key: u32,
+}
+
 async fn input_dispatch(label: &Label) {
     let mut input = Libinput::new_with_udev(Interface);
+    let mut keys = Keys {
+        shift: false,
+        alt: false,
+        meta: false,
+        key: 0,
+    };
+    let key_map = key_map();
+    let mut display: &'static str;
     input.udev_assign_seat("seat0").unwrap();
     loop {
         input.dispatch().unwrap();
         for event in &mut input {
             if let Event::Keyboard(k) = event {
-                label.set_text(&format!("{}", k.key()));
+                keys.key = k.key();
+                if key_map.contains_key(&k.key()) {
+                    display = key_map.get(&k.key()).unwrap()
+                } else {
+                    display = "";
+                    println!("{}", &k.key());
+                }
+
+                label.set_text(display);
             }
         }
         glib::timeout_future(Duration::from_millis(10)).await;
@@ -106,4 +131,8 @@ impl LibinputInterface for Interface {
     fn close_restricted(&mut self, fd: OwnedFd) {
         drop(File::from(fd));
     }
+}
+
+fn key_map() -> HashMap<u32, &'static str> {
+    HashMap::from([(1, "ESC"), (31, "s"), (30, "a")])
 }
