@@ -14,10 +14,12 @@ cd nenuphar
 cargo build
 ```
 
-<!-- end_slide -->
+## how to find my keyboard event input device
 
-### key definitions
+list all input devices
 
-Key code definitions can be found at:
+```shell
+cat /proc/bus/input/devices
+```
 
-/usr/include/linux/input-event-codes.h
+All devices with kbd flag in handlers are keyboard devices. Find event id in the "H:" row (eg. my keyboard is event4 not event0)

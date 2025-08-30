@@ -1,3 +1,4 @@
+use evdev::EventType;
 use gtk::CssProvider;
 use gtk::GestureClick;
 use gtk::Label;
@@ -6,24 +7,18 @@ use gtk::gdk;
 use gtk::prelude::*;
 use gtk::style_context_add_provider_for_display;
 use gtk::{Application, ApplicationWindow, glib};
-use input::Event;
-use input::Libinput;
-use input::LibinputInterface;
-use input::event::keyboard::KeyboardEventTrait;
-use std::collections::HashMap;
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::os::fd::OwnedFd;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
 use std::time::Duration;
-
-use libc::O_RDWR;
-use libc::O_WRONLY;
+use xkbcommon::xkb;
+use xkbcommon::xkb::Keycode;
+use xkbcommon::xkb::keysym_get_name;
 
 const APP_ID: &str = "org.gtk_rs.nenuphar";
 
 static mut SHOW_BAR: bool = true;
+const KEYCODE_OFFSET: u16 = 8;
+const KEY_STATE_RELEASE: i32 = 0;
+const KEY_STATE_PRESS: i32 = 1;
+const KEY_STATE_REPEAT: i32 = 2;
 
 fn main() -> glib::ExitCode {
     let app = Application::builder().application_id(APP_ID).build();
@@ -78,61 +73,52 @@ fn build_ui(app: &Application) {
     });
 }
 
-#[derive(Debug)]
-pub struct Keys {
-    shift: bool,
-    alt: bool,
-    meta: bool,
-    key: u32,
-}
-
 async fn input_dispatch(label: &Label) {
-    let mut input = Libinput::new_with_udev(Interface);
-    let mut keys = Keys {
-        shift: false,
-        alt: false,
-        meta: false,
-        key: 0,
-    };
-    let key_map = key_map();
-    let mut display: &'static str;
-    input.udev_assign_seat("seat0").unwrap();
+    let kbd_path_dev = String::from("/dev/input/event8");
+    let mut device = evdev::Device::open(std::env::args().nth(1).unwrap_or(kbd_path_dev)).unwrap();
+    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+
+    let keymap = xkb::Keymap::new_from_names(
+        &context,
+        "evdev",                                     // rules
+        "pc105",                                     // model
+        "pl",                                        // layout
+        "",                                          // variant
+        Some("terminate:ctrl_alt_bksp".to_string()), // options
+        xkb::COMPILE_NO_FLAGS,
+    )
+    .unwrap();
+
+    let mut state = xkb::State::new(&keymap);
+
     loop {
-        input.dispatch().unwrap();
-        for event in &mut input {
-            if let Event::Keyboard(k) = event {
-                keys.key = k.key();
-                if key_map.contains_key(&k.key()) {
-                    display = key_map.get(&k.key()).unwrap()
-                } else {
-                    display = "";
-                    println!("{}", &k.key());
+        for event in device.fetch_events().unwrap() {
+            if event.event_type() == EventType::KEY {
+                let keycode: Keycode = (event.code() + KEYCODE_OFFSET).into();
+
+                if event.value() == KEY_STATE_REPEAT && !keymap.key_repeats(keycode) {
+                    continue;
                 }
 
-                label.set_text(display);
+                if event.value() == KEY_STATE_RELEASE {
+                    state.update_key(keycode, xkb::KeyDirection::Up)
+                } else {
+                    state.update_key(keycode, xkb::KeyDirection::Down)
+                };
+
+                // TODO add met key handling
+                // Inspect state
+                //     if state.mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE) {
+                //         print!("alt ");
+                //     }
+
+                if event.value() == KEY_STATE_PRESS {
+                    let keysym = state.key_get_one_sym(keycode);
+                    label.set_text(&keysym_get_name(keysym));
+                    //println!("keysym: {} ", xkb::keysym_get_name(keysym));
+                }
             }
         }
         glib::timeout_future(Duration::from_millis(10)).await;
     }
-}
-
-struct Interface;
-
-impl LibinputInterface for Interface {
-    fn open_restricted(&mut self, path: &Path, flags: i32) -> Result<OwnedFd, i32> {
-        OpenOptions::new()
-            .custom_flags(flags)
-            .read(true)
-            .write((flags & O_WRONLY != 0) | (flags & O_RDWR != 0))
-            .open(path)
-            .map(|file: File| file.into())
-            .map_err(|err| err.raw_os_error().unwrap())
-    }
-    fn close_restricted(&mut self, fd: OwnedFd) {
-        drop(File::from(fd));
-    }
-}
-
-fn key_map() -> HashMap<u32, &'static str> {
-    HashMap::from([(1, "ESC"), (31, "s"), (30, "a")])
 }
