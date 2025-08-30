@@ -74,7 +74,7 @@ fn build_ui(app: &Application) {
 }
 
 async fn input_dispatch(label: &Label) {
-    let kbd_path_dev = String::from("/dev/input/event8");
+    let kbd_path_dev = String::from("/dev/input/event4");
     let mut device = evdev::Device::open(std::env::args().nth(1).unwrap_or(kbd_path_dev)).unwrap();
     let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
 
