@@ -7,7 +7,8 @@ Visualize pressed keys for Linux
 
 ## TODO
 
-- add meta keys display with keys (e.g. ctrl+l)
+- add timer based additive key display
+- fix meta keys display
 
 ## How it works
 

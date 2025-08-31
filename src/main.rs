@@ -46,7 +46,7 @@ fn build_ui(app: &Application) {
         }
         .main-label {
             background-color: transparent;
-            font-size: 44pt;
+            font-size: 54pt;
             color: white;
         }
     ";
@@ -140,8 +140,17 @@ async fn input_dispatch(sender: Sender<String>, kbd_evt_path: String) {
                 };
 
                 if event.value() == KEY_STATE_PRESS {
+                    let mut prefix = "";
+                    if state.mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE) {
+                        prefix = "ctrl + ";
+                    }
+
+                    if state.mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE) {
+                        prefix = "alt + ";
+                    }
+
                     let keysym = state.key_get_one_sym(keycode);
-                    let res = keysym_get_name(keysym);
+                    let res = format!("{prefix}{}", keysym_get_name(keysym));
                     sender.send(res).await.unwrap();
                 }
             }
