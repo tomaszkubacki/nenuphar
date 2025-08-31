@@ -1,3 +1,9 @@
+use std::fs;
+use std::io;
+
+use async_channel::Sender;
+use evdev::EventType;
+use glib::clone;
 use gtk::CssProvider;
 use gtk::GestureClick;
 use gtk::Label;
@@ -6,40 +12,32 @@ use gtk::gdk;
 use gtk::prelude::*;
 use gtk::style_context_add_provider_for_display;
 use gtk::{Application, ApplicationWindow, glib};
-use input::Event;
-use input::Libinput;
-use input::LibinputInterface;
-use input::event::keyboard::KeyboardEventTrait;
-use std::collections::HashMap;
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::os::fd::OwnedFd;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
-use std::time::Duration;
-
-use libc::O_RDWR;
-use libc::O_WRONLY;
+use xkbcommon::xkb;
+use xkbcommon::xkb::Keycode;
+use xkbcommon::xkb::keysym_get_name;
 
 const APP_ID: &str = "org.gtk_rs.nenuphar";
 
 static mut SHOW_BAR: bool = true;
+const KEYCODE_OFFSET: u16 = 8;
+const KEY_STATE_RELEASE: i32 = 0;
+const KEY_STATE_PRESS: i32 = 1;
+const KEY_STATE_REPEAT: i32 = 2;
 
 fn main() -> glib::ExitCode {
     let app = Application::builder().application_id(APP_ID).build();
     app.connect_activate(build_ui);
-    let exit_code = app.run();
-    print!("the end");
-    exit_code
+    app.run()
 }
 
 fn build_ui(app: &Application) {
     let display = gdk::Display::default().expect("No display found");
-    let label = Label::builder().label("this is me").build();
+    let label = Label::builder().label("click to hide title bar").build();
     label.add_css_class("main-label");
     let window = ApplicationWindow::builder()
         .application(app)
         .child(&label)
+        .title("nenuphar")
         .build();
 
     let css = "
@@ -64,7 +62,6 @@ fn build_ui(app: &Application) {
     let win_ref = window.clone();
     let gesture = GestureClick::new();
     gesture.connect_pressed(move |_gesture, _n_press, _x, _y| {
-        //        label_clone.lock().unwrap().set_text("ooo!");
         unsafe {
             SHOW_BAR = !SHOW_BAR;
             win_ref.set_decorated(SHOW_BAR);
@@ -73,66 +70,82 @@ fn build_ui(app: &Application) {
 
     label.add_controller(gesture);
     window.present();
-    glib::spawn_future_local(async move {
-        input_dispatch(&label).await;
-    });
-}
 
-#[derive(Debug)]
-pub struct Keys {
-    shift: bool,
-    alt: bool,
-    meta: bool,
-    key: u32,
-}
+    let (sender, receiver) = async_channel::unbounded();
 
-async fn input_dispatch(label: &Label) {
-    let mut input = Libinput::new_with_udev(Interface);
-    let mut keys = Keys {
-        shift: false,
-        alt: false,
-        meta: false,
-        key: 0,
-    };
-    let key_map = key_map();
-    let mut display: &'static str;
-    input.udev_assign_seat("seat0").unwrap();
-    loop {
-        input.dispatch().unwrap();
-        for event in &mut input {
-            if let Event::Keyboard(k) = event {
-                keys.key = k.key();
-                if key_map.contains_key(&k.key()) {
-                    display = key_map.get(&k.key()).unwrap()
-                } else {
-                    display = "";
-                    println!("{}", &k.key());
-                }
+    for kb_evt_path in get_kbd_dev_event_paths().unwrap() {
+        let sender_clone = sender.clone();
+        std::thread::spawn(move || {
+            println!("{kb_evt_path}");
+            let future = input_dispatch(sender_clone, kb_evt_path);
+            futures::executor::block_on(future);
+        });
+    }
 
-                label.set_text(display);
+    glib::spawn_future_local(clone!(
+        #[weak]
+        label,
+        async move {
+            while let Ok(msg) = receiver.recv().await {
+                label.set_text(&msg);
             }
         }
-        glib::timeout_future(Duration::from_millis(10)).await;
-    }
+    ));
 }
 
-struct Interface;
-
-impl LibinputInterface for Interface {
-    fn open_restricted(&mut self, path: &Path, flags: i32) -> Result<OwnedFd, i32> {
-        OpenOptions::new()
-            .custom_flags(flags)
-            .read(true)
-            .write((flags & O_WRONLY != 0) | (flags & O_RDWR != 0))
-            .open(path)
-            .map(|file: File| file.into())
-            .map_err(|err| err.raw_os_error().unwrap())
-    }
-    fn close_restricted(&mut self, fd: OwnedFd) {
-        drop(File::from(fd));
-    }
+pub fn get_kbd_dev_event_paths() -> io::Result<Vec<String>> {
+    let content = fs::read_to_string("/proc/bus/input/devices")?;
+    let events = content
+        .lines()
+        .filter(|line| line.starts_with('H') && line.contains("kbd") && line.contains("leds"))
+        .flat_map(|line| {
+            line.split_whitespace()
+                .filter(|event| event.starts_with("event"))
+                .map(|event| format!("/dev/input/{event}"))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    Ok(events)
 }
 
-fn key_map() -> HashMap<u32, &'static str> {
-    HashMap::from([(1, "ESC"), (31, "s"), (30, "a")])
+async fn input_dispatch(sender: Sender<String>, kbd_evt_path: String) {
+    let mut device = evdev::Device::open(kbd_evt_path).unwrap();
+    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+
+    let keymap = xkb::Keymap::new_from_names(
+        &context,
+        "evdev",                                     // rules
+        "pc105",                                     // model
+        "pl",                                        // layout
+        "",                                          // variant
+        Some("terminate:ctrl_alt_bksp".to_string()), // options
+        xkb::COMPILE_NO_FLAGS,
+    )
+    .unwrap();
+
+    let mut state = xkb::State::new(&keymap);
+
+    loop {
+        for event in device.fetch_events().unwrap() {
+            if event.event_type() == EventType::KEY {
+                let keycode: Keycode = (event.code() + KEYCODE_OFFSET).into();
+
+                if event.value() == KEY_STATE_REPEAT && !keymap.key_repeats(keycode) {
+                    continue;
+                }
+
+                if event.value() == KEY_STATE_RELEASE {
+                    state.update_key(keycode, xkb::KeyDirection::Up)
+                } else {
+                    state.update_key(keycode, xkb::KeyDirection::Down)
+                };
+
+                if event.value() == KEY_STATE_PRESS {
+                    let keysym = state.key_get_one_sym(keycode);
+                    let res = keysym_get_name(keysym);
+                    sender.send(res).await.unwrap();
+                }
+            }
+        }
+    }
 }

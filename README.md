@@ -2,7 +2,12 @@
 
 Visualize pressed keys for Linux
 
-!!!THIS PROJECT IS IN DEV mode - not ready to use!!!
+> [!IMPORTANT]
+> this software is alpha quality
+
+## How it works
+
+It opens all keyboard event devices and listens for key press, then display key in a gtk window
 
 ## Install
 
@@ -14,10 +19,13 @@ cd nenuphar
 cargo build
 ```
 
-<!-- end_slide -->
+## how to find my keyboard event input device
 
-### key definitions
+Display all input devices
 
-Key code definitions can be found at:
+```shell
+cat /proc/bus/input/devices
+```
 
-/usr/include/linux/input-event-codes.h
+All devices with kbd flag in handlers are keyboard devices.
+Find event id in the "H:" row (eg. my keyboard is event4 not event0)

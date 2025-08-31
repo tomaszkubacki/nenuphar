@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 gtk = { version = "0.10.0", package = "gtk4", features = ["v4_12"] }
-input = "0.9.1"
 libc = "0.2.175"
-
+xkbcommon = { version = "0.9", features = ["wayland"] }
+evdev = "0.13.1"
+async-channel = "2.5.0"
+futures = "0.3.31"
