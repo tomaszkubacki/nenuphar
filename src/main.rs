@@ -1,5 +1,7 @@
 use std::fs;
 use std::io;
+use std::time::Duration;
+use std::time::SystemTime;
 
 use async_channel::Sender;
 use evdev::EventType;
@@ -123,6 +125,9 @@ async fn input_dispatch(sender: Sender<String>, kbd_evt_path: String) {
     .unwrap();
 
     let mut state = xkb::State::new(&keymap);
+    let mut last_ts = SystemTime::now();
+    let mut last_res = String::new();
+    let mut res = String::new();
 
     loop {
         for event in device.fetch_events().unwrap() {
@@ -150,7 +155,17 @@ async fn input_dispatch(sender: Sender<String>, kbd_evt_path: String) {
                     }
 
                     let keysym = state.key_get_one_sym(keycode);
-                    let res = format!("{prefix}{}", keysym_get_name(keysym));
+                    let ts = event.timestamp().duration_since(last_ts).unwrap();
+                    println!("{ts:?}");
+
+                    if ts > Duration::from_millis(2000) {
+                        last_res = String::new();
+                    }
+
+                    res = format!("{last_res}{prefix}{}", keysym_get_name(keysym));
+                    last_ts = event.timestamp();
+
+                    last_res = format!("{res} ");
                     sender.send(res).await.unwrap();
                 }
             }
