@@ -5,9 +5,14 @@ Visualize pressed keys for Linux
 > [!IMPORTANT]
 > this software is alpha quality
 
+## TODO
+
+- add meta keys display with keys (e.g. ctrl+l)
+
 ## How it works
 
-It opens all keyboard event devices and listens for key press, then display key in a gtk window
+It opens all keyboard event devices and listens for key press, then display key
+in a gtk window
 
 ## Install
 

@@ -76,7 +76,6 @@ fn build_ui(app: &Application) {
     for kb_evt_path in get_kbd_dev_event_paths().unwrap() {
         let sender_clone = sender.clone();
         std::thread::spawn(move || {
-            println!("{kb_evt_path}");
             let future = input_dispatch(sender_clone, kb_evt_path);
             futures::executor::block_on(future);
         });
