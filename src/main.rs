@@ -128,6 +128,9 @@ async fn input_dispatch(sender: Sender<String>, kbd_evt_path: String) {
     let mut last_ts = SystemTime::now();
     let mut last_res = String::new();
     let mut res = String::new();
+    let mut ctrl = false;
+    let mut alt = false;
+    let mut shift = false;
 
     loop {
         for event in device.fetch_events().unwrap() {
@@ -146,15 +149,17 @@ async fn input_dispatch(sender: Sender<String>, kbd_evt_path: String) {
 
                 if event.value() == KEY_STATE_PRESS {
                     let mut prefix = "";
-                    if state.mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE) {
-                        prefix = "ctrl + ";
-                    }
+                    ctrl =  state.mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE) {
 
-                    if state.mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE) {
-                        prefix = "alt + ";
-                    }
-
+                    alt =  state.mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE) 
                     let keysym = state.key_get_one_sym(keycode);
+
+                    
+                    if ctrl && keysym == xkbcommon::xkb::keysyms::KEY_Control_L {
+                        //TODO remove Control from key name
+                    }
+
+
                     let ts = event.timestamp().duration_since(last_ts).unwrap();
                     println!("{ts:?}");
 
@@ -162,7 +167,7 @@ async fn input_dispatch(sender: Sender<String>, kbd_evt_path: String) {
                         last_res = String::new();
                     }
 
-                    res = format!("{last_res}{prefix}{}", keysym_get_name(keysym));
+                    res = format!("{last_res}{prefix}{key}");
                     last_ts = event.timestamp();
 
                     last_res = format!("{res} ");
