@@ -148,22 +148,29 @@ async fn input_dispatch(sender: Sender<String>, kbd_evt_path: String) {
                 };
 
                 if event.value() == KEY_STATE_PRESS {
-                    let mut prefix = "";
-                    ctrl =  state.mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE) {
-
-                    alt =  state.mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE) 
+                    let mut prefix = String::from("");
+                    ctrl = state.mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE);
+                    alt = state.mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE);
                     let keysym = state.key_get_one_sym(keycode);
+                    //xkb::Keysym::Kana_Shift
 
-                    
-                    if ctrl && keysym == xkbcommon::xkb::keysyms::KEY_Control_L {
-                        //TODO remove Control from key name
+                    if ctrl {
+                        prefix.push_str("ctrl + ");
+                    }
+                    alt = state.mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE);
+                    if alt {
+                        prefix.push_str("alt + ");
                     }
 
+                    let mut key = keysym_get_name(keysym);
+                    if keysym.is_modifier_key() {
+                        //                        key = String::from("");
+                    }
 
                     let ts = event.timestamp().duration_since(last_ts).unwrap();
                     println!("{ts:?}");
 
-                    if ts > Duration::from_millis(2000) {
+                    if ts > Duration::from_millis(2000) || ctrl || alt {
                         last_res = String::new();
                     }
 
